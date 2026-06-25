@@ -3,7 +3,11 @@
 APP       := keygate
 GO        := go
 BUN       := bun
-BIN       := bin/$(APP)
+ifeq ($(OS),Windows_NT)
+    BIN := bin/$(APP).exe
+else
+    BIN := bin/$(APP)
+endif
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -23,6 +27,10 @@ build: build-web build-go ## Build everything
 .PHONY: build-go
 build-go: ## Build Go binary
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/server
+
+.PHONY: build-windows
+build-windows: build-web ## Build Windows binary (cross-compile)
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP).exe ./cmd/server
 
 .PHONY: build-web
 build-web: web/node_modules ## Build frontend
