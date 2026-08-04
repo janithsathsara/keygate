@@ -92,7 +92,7 @@ func main() {
 		5*time.Minute,
 	)
 	webhookSvc := service.NewWebhookService(db, logger, webhookHTTPTimeout, cfg.WebhookMaxAttempts)
-	emailSvc := service.NewEmailService(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, logger, db)
+	emailSvc := service.NewEmailService(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, cfg.EmailProvider, cfg.SendGridAPIKey, logger, db)
 	// LICENSE_SIGNING_KEY is a 32-byte ed25519 seed in hex. Parsed
 	// once here so an invalid value fails fast at startup rather
 	// than the first /license/activate call.

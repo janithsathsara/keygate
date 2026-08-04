@@ -241,46 +241,94 @@ export default function SettingsPage() {
               <CardTitle className="text-base">{t("settings.email")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label>{t("settings.smtpHost")}</Label>
-                  <Input
-                    value={form.smtp_host || ""}
-                    onChange={(e) => set("smtp_host", e.target.value)}
-                    placeholder="smtp.example.com"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("settings.smtpPort")}</Label>
-                  <Input
-                    value={form.smtp_port || ""}
-                    onChange={(e) => set("smtp_port", e.target.value)}
-                    placeholder="587"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("settings.smtpUsername")}</Label>
-                  <Input value={form.smtp_username || ""} onChange={(e) => set("smtp_username", e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("settings.smtpPassword")}</Label>
-                  <Input
-                    type="password"
-                    value={form.smtp_password || ""}
-                    onChange={(e) => set("smtp_password", e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label>{t("settings.smtpFrom")}</Label>
-                  <Input
-                    type="email"
-                    value={form.smtp_from || ""}
-                    onChange={(e) => set("smtp_from", e.target.value)}
-                    placeholder="noreply@example.com"
-                  />
-                  <p className="text-xs text-muted-foreground">{t("settings.smtpFromDesc")}</p>
-                </div>
+              <div className="space-y-2">
+                <Label>{t("settings.provider")}</Label>
+                <Select
+                  value={form.email_provider || "smtp"}
+                  onValueChange={(v) => {
+                    set("email_provider", v)
+                    if (v === "smtp") {
+                      set("sendgrid_api_key", "")
+                      set("sendgrid_from", "")
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full md:w-80">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="smtp">{t("settings.providerSmtp")}</SelectItem>
+                    <SelectItem value="sendgrid">{t("settings.providerSendgrid")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t("settings.providerDesc")}</p>
               </div>
+
+              {(form.email_provider || "smtp") === "sendgrid" ? (
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2 col-span-2">
+                    <Label>{t("settings.sendgridApiKey")}</Label>
+                    <Input
+                      type="password"
+                      value={form.sendgrid_api_key || ""}
+                      onChange={(e) => set("sendgrid_api_key", e.target.value)}
+                      placeholder="SG.xxxxxxxx"
+                    />
+                    <p className="text-xs text-muted-foreground">{t("settings.sendgridApiKeyDesc")}</p>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>{t("settings.sendgridFrom")}</Label>
+                    <Input
+                      type="email"
+                      value={form.sendgrid_from || ""}
+                      onChange={(e) => set("sendgrid_from", e.target.value)}
+                      placeholder="noreply@example.com"
+                    />
+                    <p className="text-xs text-muted-foreground">{t("settings.sendgridFromDesc")}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label>{t("settings.smtpHost")}</Label>
+                    <Input
+                      value={form.smtp_host || ""}
+                      onChange={(e) => set("smtp_host", e.target.value)}
+                      placeholder="smtp.example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("settings.smtpPort")}</Label>
+                    <Input
+                      value={form.smtp_port || ""}
+                      onChange={(e) => set("smtp_port", e.target.value)}
+                      placeholder="587"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("settings.smtpUsername")}</Label>
+                    <Input value={form.smtp_username || ""} onChange={(e) => set("smtp_username", e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("settings.smtpPassword")}</Label>
+                    <Input
+                      type="password"
+                      value={form.smtp_password || ""}
+                      onChange={(e) => set("smtp_password", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>{t("settings.smtpFrom")}</Label>
+                    <Input
+                      type="email"
+                      value={form.smtp_from || ""}
+                      onChange={(e) => set("smtp_from", e.target.value)}
+                      placeholder="noreply@example.com"
+                    />
+                    <p className="text-xs text-muted-foreground">{t("settings.smtpFromDesc")}</p>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-4 pt-2">
                 <Button variant="outline" onClick={() => testEmailMut.mutate()} disabled={testEmailMut.isPending}>
                   <Send className="h-4 w-4 mr-2" />

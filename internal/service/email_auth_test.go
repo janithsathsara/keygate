@@ -90,8 +90,8 @@ func TestSendOnce_AuthPickerMatrix(t *testing.T) {
 				username: tc.username,
 				password: "s3cret",
 				from:     "noreply@keygate.test",
-				enabled:  true,
-				logger:   slog.Default(),
+
+				logger: slog.Default(),
 				// Test-only: the mock server presents an ephemeral
 				// self-signed cert. Trust it without modifying the
 				// machine's CA store. Production leaves tlsConfig nil
@@ -99,7 +99,7 @@ func TestSendOnce_AuthPickerMatrix(t *testing.T) {
 				tlsConfig: &tls.Config{ServerName: "127.0.0.1", InsecureSkipVerify: true}, //nolint:gosec
 			}
 
-			err := svc.sendOnce(svc.host+":"+svc.port, "to@example.com",
+			err := svc.sendOnce(svc.host+":"+svc.port, "noreply@keygate.test", "to@example.com",
 				[]byte("Subject: ok\r\n\r\nhi\r\n"))
 
 			if tc.wantErrSubstr != "" {
@@ -138,17 +138,17 @@ func TestSendOnce_RejectsBadLoginCredentials(t *testing.T) {
 	defer srv.Close()
 
 	svc := &EmailService{
-		host:      "127.0.0.1",
-		port:      fmt.Sprintf("%d", srv.Port()),
-		username:  "alice",
-		password:  "WRONG-PASSWORD",
-		from:      "noreply@keygate.test",
-		enabled:   true,
+		host:     "127.0.0.1",
+		port:     fmt.Sprintf("%d", srv.Port()),
+		username: "alice",
+		password: "WRONG-PASSWORD",
+		from:     "noreply@keygate.test",
+
 		logger:    slog.Default(),
 		tlsConfig: &tls.Config{ServerName: "127.0.0.1", InsecureSkipVerify: true}, //nolint:gosec
 	}
 
-	err := svc.sendOnce(svc.host+":"+svc.port, "to@example.com",
+	err := svc.sendOnce(svc.host+":"+svc.port, "noreply@keygate.test", "to@example.com",
 		[]byte("Subject: ok\r\n\r\nhi\r\n"))
 	if err == nil {
 		t.Fatal("expected auth error with wrong password, got nil")

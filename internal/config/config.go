@@ -40,6 +40,15 @@ type Config struct {
 	SMTPPassword string
 	SMTPFrom     string
 
+	// EmailProvider selects the outbound transport: "smtp" (default,
+	// existing SMTP client) or "sendgrid" (HTTP API over port 443 —
+	// required on Render free tier where SMTP ports 25/465/587 are
+	// blocked). The admin panel can override these at runtime via
+	// DB settings (email_provider / sendgrid_api_key / sendgrid_from).
+	EmailProvider  string
+	SendGridAPIKey string
+	SendGridFrom   string
+
 	RedisURL string
 
 	RateLimitAPI   int
@@ -117,6 +126,10 @@ func Load() (*Config, error) {
 	cfg.SMTPUsername = os.Getenv("SMTP_USERNAME")
 	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
 	cfg.SMTPFrom = os.Getenv("SMTP_FROM")
+
+	cfg.EmailProvider = envOr("EMAIL_PROVIDER", "smtp")
+	cfg.SendGridAPIKey = os.Getenv("SENDGRID_API_KEY")
+	cfg.SendGridFrom = os.Getenv("SENDGRID_FROM")
 
 	cfg.RateLimitAPI = envIntOr("RATE_LIMIT_API", 60)
 	cfg.RateLimitAdmin = envIntOr("RATE_LIMIT_ADMIN", 120)

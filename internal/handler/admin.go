@@ -1656,6 +1656,7 @@ func (h *AdminHandler) UpdateSettings(c *gin.Context) {
 		"site_name": true, "timezone": true, "language": true, "brand_color": true, "logo_url": true,
 		"smtp_host": true, "smtp_port": true, "smtp_username": true,
 		"smtp_password": true, "smtp_from": true,
+		"email_provider": true, "sendgrid_api_key": true, "sendgrid_from": true,
 		"rate_limit_api": true, "rate_limit_admin": true,
 		"webhook_max_attempts": true, "webhook_timeout": true,
 		"quota_warning_threshold":          true,
@@ -1724,14 +1725,15 @@ func (h *AdminHandler) RunExpiryChecks(c *gin.Context) {
 	response.OK(c, gin.H{"status": "ran"})
 }
 
-// SendTestEmail sends a real test message through the configured SMTP
-// server so the admin can verify host/port/credentials end-to-end.
+// SendTestEmail sends a real test message through the configured email
+// transport (SMTP or the SendGrid HTTP API) so the admin can verify
+// host/port/credentials end-to-end.
 // Body: { "to": "user@example.com" } — optional; defaults to the
 // logged-in admin's own email address.
 func (h *AdminHandler) SendTestEmail(c *gin.Context) {
 	if h.Email == nil || !h.Email.IsConfigured() {
 		response.Err(c, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED",
-			"SMTP is not configured on this server — set SMTP_HOST / SMTP_FROM / etc.")
+			"email is not configured on this server — set SMTP_* env vars or EMAIL_PROVIDER=sendgrid + SENDGRID_API_KEY (or save them in Settings)")
 		return
 	}
 	var req struct {
@@ -1751,7 +1753,7 @@ func (h *AdminHandler) SendTestEmail(c *gin.Context) {
 	if err := h.Email.Send(to,
 		"Keygate test email",
 		`<p>Hello! This is a test email from Keygate.</p>`+
-			`<p>If you can read this, your SMTP setup is working.</p>`); err != nil {
+			`<p>If you can read this, your email setup is working.</p>`); err != nil {
 		response.Err(c, http.StatusBadGateway, "EMAIL_SEND_FAILED", err.Error())
 		return
 	}

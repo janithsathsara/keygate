@@ -55,7 +55,7 @@ func (h *AuthHandler) OTPSend(c *gin.Context) {
 	if h.Email != nil && h.Email.IsConfigured() {
 		h.Email.SendOTPCode(email, code)
 	} else {
-		slog.Warn("SMTP not configured — OTP code printed to log (configure SMTP for email delivery)",
+		slog.Warn("email not configured — OTP code printed to log (configure SMTP_* or EMAIL_PROVIDER=sendgrid for email delivery)",
 			"email", email, "code", code)
 	}
 

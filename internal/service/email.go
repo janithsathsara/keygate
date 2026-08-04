@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"strings"
@@ -27,9 +28,18 @@ type EmailService struct {
 	username string
 	password string
 	from     string
-	enabled  bool
-	logger   *slog.Logger
-	store    *store.Store
+	// provider selects the outbound transport: "smtp" (default) or
+	// "sendgrid" (HTTP API over port 443 — required on hosting that
+	// blocks SMTP egress like Render's free tier).
+	provider string
+	// sgKey is the SendGrid Web API v3 bearer key. Only used when
+	// provider == "sendgrid".
+	sgKey string
+	// httpClient sends SendGrid API requests. Nil in production;
+	// tests inject a client pointed at an httptest.Server.
+	httpClient *http.Client
+	logger     *slog.Logger
+	store      *store.Store
 	// tlsConfig overrides the default STARTTLS settings. Production
 	// leaves this nil so sendOnce builds the standard verify-the-
 	// chain tls.Config. Tests inject a config with
@@ -38,17 +48,34 @@ type EmailService struct {
 	tlsConfig *tls.Config
 }
 
-func (s *EmailService) IsConfigured() bool { return s.enabled }
+// IsConfigured reports whether an outbound transport is usable right
+// now. Both env vars and admin-panel DB settings (email_provider /
+// sendgrid_api_key / sendgrid_from / smtp_*) are consulted, so the
+// answer can change after an admin saves settings without a restart.
+func (s *EmailService) IsConfigured() bool {
+	from, provider, sgKey := s.effectiveConfig()
+	return s.isConfigured(provider, sgKey, from)
+}
 
-func NewEmailService(host, port, username, password, from string, logger *slog.Logger, s *store.Store) *EmailService {
-	enabled := host != "" && from != ""
-	if !enabled {
-		logger.Warn("email service disabled: SMTP not configured")
+func (s *EmailService) isConfigured(provider, sgKey, from string) bool {
+	if from == "" {
+		return false
+	}
+	if strings.EqualFold(provider, "sendgrid") {
+		return sgKey != ""
+	}
+	return s.host != ""
+}
+
+func NewEmailService(host, port, username, password, from string, provider, sgKey string, logger *slog.Logger, s *store.Store) *EmailService {
+	if from == "" || !(strings.EqualFold(provider, "sendgrid") && sgKey != "" || host != "") {
+		logger.Warn("email service disabled: no email transport configured (set SMTP_* or EMAIL_PROVIDER=sendgrid + SENDGRID_API_KEY)")
 	}
 	return &EmailService{
 		host: host, port: port, username: username,
-		password: password, from: from, enabled: enabled, logger: logger,
-		store: s,
+		password: password, from: from, provider: provider, sgKey: sgKey,
+		logger: logger,
+		store:  s,
 	}
 }
 
@@ -80,7 +107,8 @@ func DefaultTemplates() map[string]string {
 }
 
 func (s *EmailService) Send(to, subject, htmlBody string) error {
-	if !s.enabled {
+	from, provider, sgKey := s.effectiveConfig()
+	if !s.isConfigured(provider, sgKey, from) {
 		s.logger.Info("email skipped (not configured)", "to", to, "subject", subject)
 		return nil
 	}
@@ -90,8 +118,60 @@ func (s *EmailService) Send(to, subject, htmlBody string) error {
 		htmlBody = strings.Replace(htmlBody, "</body>", emailFooter()+"</body>", 1)
 	}
 
+	err := s.deliver(from, provider, sgKey, to, subject, htmlBody)
+	if err != nil {
+		// Retry once after a short delay — transient TCP / TLS hiccups.
+		s.logger.Warn("email send failed, retrying", "to", to, "error", err)
+		time.Sleep(3 * time.Second)
+		err = s.deliver(from, provider, sgKey, to, subject, htmlBody)
+		if err != nil {
+			s.logger.Error("email send failed after retry", "to", to, "error", err)
+			return fmt.Errorf("email send: %w", err)
+		}
+	}
+	s.logger.Info("email sent", "to", to, "subject", subject)
+	return nil
+}
+
+// effectiveConfig resolves the transport configuration that should be
+// used right now. Admin-panel DB settings take precedence over the
+// env-injected values so operators can switch providers (or rotate
+// keys) from the UI without redeploying.
+func (s *EmailService) effectiveConfig() (from, provider, sgKey string) {
+	from, provider, sgKey = s.from, s.provider, s.sgKey
+	if s.store == nil {
+		return
+	}
+	ctx := context.Background()
+	if v, err := s.store.GetSetting(ctx, "email_provider"); err == nil && v != "" {
+		provider = v
+	}
+	if v, err := s.store.GetSetting(ctx, "sendgrid_from"); err == nil && v != "" {
+		from = v
+	}
+	if v, err := s.store.GetSetting(ctx, "sendgrid_api_key"); err == nil && v != "" {
+		sgKey = v
+	}
+	return
+}
+
+// deliver routes one email to the configured transport.
+func (s *EmailService) deliver(from, provider, sgKey, to, subject, htmlBody string) error {
+	if strings.EqualFold(provider, "sendgrid") {
+		client := s.httpClient
+		if client == nil {
+			client = &http.Client{Timeout: 15 * time.Second}
+		}
+		return sendGridDeliver(client, sgKey, from, to, subject, htmlBody)
+	}
+	return s.sendSMTP(from, to, subject, htmlBody)
+}
+
+// sendSMTP builds the RFC 5322 message (From/To/Subject/MIME headers
+// plus the HTML body) and delivers it through the SMTP client.
+func (s *EmailService) sendSMTP(from, to, subject, htmlBody string) error {
 	msg := strings.Join([]string{
-		"From: " + s.from,
+		"From: " + from,
 		"To: " + to,
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
@@ -101,19 +181,7 @@ func (s *EmailService) Send(to, subject, htmlBody string) error {
 	}, "\r\n")
 
 	addr := s.host + ":" + s.port
-	err := s.sendOnce(addr, to, []byte(msg))
-	if err != nil {
-		// Retry once after a short delay — transient TCP / TLS hiccups.
-		s.logger.Warn("email send failed, retrying", "to", to, "error", err)
-		time.Sleep(3 * time.Second)
-		err = s.sendOnce(addr, to, []byte(msg))
-		if err != nil {
-			s.logger.Error("email send failed after retry", "to", to, "error", err)
-			return fmt.Errorf("email send: %w", err)
-		}
-	}
-	s.logger.Info("email sent", "to", to, "subject", subject)
-	return nil
+	return s.sendOnce(addr, from, to, []byte(msg))
 }
 
 // sendOnce drives the SMTP conversation manually so we can negotiate
@@ -143,7 +211,7 @@ func (s *EmailService) Send(to, subject, htmlBody string) error {
 // step returns the "unencrypted connection" error from PlainAuth's
 // own guard. That's the safe default; relay-style deployments that
 // genuinely want plaintext auth can run their own postfix in front.
-func (s *EmailService) sendOnce(addr, to string, msg []byte) error {
+func (s *EmailService) sendOnce(addr, from, to string, msg []byte) error {
 	// The SMTP envelope sender (MAIL FROM, RFC 5321) must be a BARE
 	// address — "noreply@x.com", never "Keygate <noreply@x.com>".
 	// The display-name form is only legal in the RFC 5322 "From:"
@@ -151,7 +219,7 @@ func (s *EmailService) sendOnce(addr, to string, msg []byte) error {
 	// Postmark reject a display-name envelope with
 	// "501 Bad sender address syntax". Parse once here so operators
 	// can keep configuring the friendly form in SMTP_FROM.
-	envelopeFrom, err := parseEnvelopeAddress(s.from)
+	envelopeFrom, err := parseEnvelopeAddress(from)
 	if err != nil {
 		return fmt.Errorf("invalid SMTP_FROM %q: %w", s.from, err)
 	}
